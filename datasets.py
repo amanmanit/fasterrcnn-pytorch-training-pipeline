@@ -434,22 +434,61 @@ class CustomDataset(Dataset):
         target["image_id"] = image_id
 
         # Before transformation
-        labels = labels.cpu().numpy().tolist()  # Convert tensor to list
+        labels = [int(label) for label in labels]   # Fix: convert tensor labels to plain ints
+        # labels = labels.cpu().numpy().tolist()  # Convert tensor to list
         bboxes = target['boxes'].cpu().numpy().tolist()
 
-        if self.use_train_aug: # Use train augmentation if argument is passed.
-            train_aug = get_train_aug()
-            sample = train_aug(image=image_resized,
-                                     bboxes=target['boxes'],
-                                     labels=labels)
-            image_resized = sample['image']
-            target['boxes'] = torch.Tensor(sample['bboxes']).to(torch.int64)
+        # if self.use_train_aug: # Use train augmentation if argument is passed.
+        #     train_aug = get_train_aug()
+        #     sample = train_aug(image=image_resized,
+        #                              bboxes=target['boxes'],
+        #                              labels=labels)
+        #     image_resized = sample['image']
+        #     target['boxes'] = torch.Tensor(sample['bboxes']).to(torch.int64)
+        # else:
+        #     sample = self.transforms(image=image_resized,
+        #                              bboxes=target['boxes'],
+        #                              labels=labels)
+        #     image_resized = sample['image']
+        #     target['boxes'] = torch.Tensor(sample['bboxes']).to(torch.int64)
+        if self.use_train_aug:  # Use train augmentation if argument is passed.
+          train_aug = get_train_aug()
+
+          # Convert tensor to proper Python lists
+          bboxes = target['boxes'].cpu().numpy().tolist()
+          labels = target['labels'].cpu().numpy().reshape(-1).tolist()
+
+          # 🧩 Fix possible shape issues (1D bbox or nested labels)
+          if len(bboxes) > 0 and isinstance(bboxes[0], (int, float)):
+              bboxes = [bboxes]
+          if len(labels) > 0 and isinstance(labels[0], list):
+              labels = [int(l[0]) for l in labels]
+
+          try:
+              sample = train_aug(image=image_resized, bboxes=bboxes, labels=labels)
+          except Exception as e:
+              print(f"⚠️ Augmentation failed at index {idx}: {e}")
+              print("bboxes:", bboxes)
+              print("labels:", labels)
+              raise e
+
+          image_resized = sample['image']
+          target['boxes'] = torch.tensor(sample['bboxes'], dtype=torch.float32)
+          target['labels'] = torch.tensor(sample['labels'], dtype=torch.int64)
+
         else:
-            sample = self.transforms(image=image_resized,
-                                     bboxes=target['boxes'],
-                                     labels=labels)
+            bboxes = target['boxes'].cpu().numpy().tolist()
+            labels = target['labels'].cpu().numpy().reshape(-1).tolist()
+
+            if len(bboxes) > 0 and isinstance(bboxes[0], (int, float)):
+                bboxes = [bboxes]
+            if len(labels) > 0 and isinstance(labels[0], list):
+                labels = [int(l[0]) for l in labels]
+
+            sample = self.transforms(image=image_resized, bboxes=bboxes, labels=labels)
             image_resized = sample['image']
-            target['boxes'] = torch.Tensor(sample['bboxes']).to(torch.int64)
+            target['boxes'] = torch.tensor(sample['bboxes'], dtype=torch.float32)
+            target['labels'] = torch.tensor(sample['labels'], dtype=torch.int64)
 
         # Fix to enable training without target bounding boxes,
         # see https://discuss.pytorch.org/t/fasterrcnn-images-with-no-objects-present-cause-an-error/117974/4

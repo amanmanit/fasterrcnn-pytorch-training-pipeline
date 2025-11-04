@@ -95,7 +95,7 @@ def parse_opt():
     )
     parser.add_argument(
         '--lr', 
-        default=0.001,
+        default=0.0005,
         help='learning rate for the optimizer',
         type=float
     )
@@ -176,6 +176,7 @@ def parse_opt():
         '-dw', '--disable-wandb',
         dest="disable_wandb",
         action='store_true',
+        default=True,
         help='whether to use the wandb'
     )
     parser.add_argument(
@@ -191,7 +192,7 @@ def parse_opt():
     )
     parser.add_argument(
         '--patience',
-        default=10,
+        default=5,
         help='number of epochs to wait for when mAP does not increase to \
               trigger early stopping',
         type=int
@@ -209,19 +210,6 @@ def parse_opt():
         help='save resutls to custom dir instead of `outputs` directory, \
               --project-dir will be named if not already present',
         type=str
-    )
-    parser.add_argument(
-        '--label-type',
-        dest='label_type',
-        default='pascal_voc',
-        choices=['pascal_voc', 'yolo'],
-        help='label files type, you can either Pascal VOC XML type or, \
-              yolo txt type label files'
-    )
-    parser.add_argument(
-        '--optimizer',
-        default=None,
-        choices=['SGD', 'AdamW']
     )
 
     args = vars(parser.parse_args())
@@ -255,7 +243,7 @@ def main(args):
     BATCH_SIZE = args['batch']
     VISUALIZE_TRANSFORMED_IMAGES = args['vis_transformed']
     OUT_DIR = set_training_dir(args['name'], args['project_dir'])
-    COLORS = np.random.uniform(0, 1, size=(len(CLASSES), 3))
+    COLORS = np.random.uniform(0, 1, size=(len(CLASSES), 2))
     SCALER = torch.cuda.amp.GradScaler() if args['amp'] else None
     # Set logging file.
     set_log(OUT_DIR)
@@ -273,16 +261,14 @@ def main(args):
         CLASSES,
         use_train_aug=args['use_train_aug'],
         mosaic=args['mosaic'],
-        square_training=args['square_training'],
-        label_type=args['label_type']
+        square_training=args['square_training']
     )
     valid_dataset = create_valid_dataset(
         VALID_DIR_IMAGES, 
         VALID_DIR_LABELS, 
         IMAGE_SIZE, 
         CLASSES,
-        square_training=args['square_training'],
-        label_type=args['label_type']
+        square_training=args['square_training']
     )
     print('Creating data loaders')
     if args['distributed']:
@@ -401,17 +387,8 @@ def main(args):
     # Get the model parameters.
     params = [p for p in model.parameters() if p.requires_grad]
     # Define the optimizer.
-
-    if args['optimizer'] is not None:
-        optimizer = getattr(torch.optim, args['optimizer'])(params, lr=args['lr'], momentum=0.9, nesterov=True)
-        print(f"Using {optimizer} for {args['model']}")
-    else:
-        if 'dinov3' in args['model']:
-            optimizer = torch.optim.AdamW(params, lr=args['lr'])
-            print(f"Using {optimizer} for {args['model']}")
-        else:
-            optimizer = torch.optim.SGD(params, lr=args['lr'], momentum=0.9, nesterov=True)
-            print(f"Using {optimizer} for {args['model']}")
+    # optimizer = torch.optim.SGD(params, lr=args['lr'], momentum=0.9, nesterov=True)
+    optimizer = torch.optim.AdamW(params, lr=args['lr'], weight_decay=0.0005)
     if args['resume_training']: 
         # LOAD THE OPTIMIZER STATE DICTIONARY FROM THE CHECKPOINT.
         print('Loading optimizer state dictionary...')
